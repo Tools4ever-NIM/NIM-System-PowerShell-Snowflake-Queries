@@ -6,6 +6,20 @@ $Log_MaskableKeys = @(
     'password'
 )
 
+# Check if ODBC Driver installed
+$driverPrefix = "Snowflake"
+$drivers64 = Get-ItemProperty -Path "HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers" -ErrorAction SilentlyContinue
+$matchingDrivers = $drivers64.PSObject.Properties | Where-Object { $_.Name -like "$driverPrefix*" }
+
+$Global:ModuleStatus = "<b><div class=`"alert alert-danger`" role=`"alert`">$($driverPrefix) ODBC Driver not installed.</div></b>"
+
+if ($matchingDrivers.Count -gt 0) {
+    "Found matching ODBC driver(s):"
+    $matchingDrivers | ForEach-Object { " - $($_.Name)" }
+	$Global:ModuleStatus = "<b><div class=`"alert alert-success`" role=`"alert`">$($matchingDrivers[0].Name) is installed.</div></b>"
+} else {
+    "No ODBC drivers found starting with '$($driverPrefix)'."
+}
 
 #
 # System functions
@@ -25,7 +39,19 @@ function Idm-SystemInfo {
     
     if ($Connection) {
         @(      
-            @{
+			@{
+				name = 'ModuleStatus'
+				type = 'text'
+				label = 'ODBC Status'
+				text = $Global:ModuleStatus
+			}
+			@{
+                name = 'connection_header'
+                type = 'text'
+                text = 'Connection'
+				tooltip = 'Connection information for the database'
+            }
+			@{
                 name = 'host_name'
                 type = 'textbox'
                 label = 'Server'
@@ -55,11 +81,38 @@ function Idm-SystemInfo {
                 description = 'User account password to access server'
             }
             @{
-                name = 'timeout'
+                name = 'query_timeout'
                 type = 'textbox'
-                label = 'Timeout'
-                description = 'O = no timeout'
-                value = '0'
+                label = 'Query Timeout'
+                description = 'Time it takes for the query to timeout'
+                value = '1800'
+            }
+			@{
+                name = 'connection_timeout'
+                type = 'textbox'
+                label = 'Connection Timeout'
+                description = 'Time it takes for the ODBC Connection to timeout'
+                value = '3600'
+            }
+			@{
+                name = 'session_header'
+                type = 'text'
+                text = 'Session Options'
+				tooltip = 'Options for system session'
+            }
+			@{
+                name = 'nr_of_sessions'
+                type = 'textbox'
+                label = 'Max. number of simultaneous sessions'
+                tooltip = ''
+                value = 1
+            }
+            @{
+                name = 'sessions_idle_timeout'
+                type = 'textbox'
+                label = 'Session cleanup idle time (minutes)'
+                tooltip = ''
+                value = 1
             }
 			@{
                 name = 'table_header'
@@ -669,10 +722,9 @@ function Idm-Dispatcher {
                 }
             }
 
-           # $column_query = $class_query.replace("SELECT ","SELECT TOP 5 ")
-		   $column_query = $class_query + " FETCH FIRST 5 ROWS ONLY"
+		    $column_query = $class_query + " FETCH FIRST 5 ROWS ONLY"
         
-            $columns = Fill-SqlInfoCache -Query $column_query -Timeout $SystemParams.timeout
+            $columns = Fill-SqlInfoCache -Query $column_query -Timeout $SystemParams.query_timeout
         
             $Global:ColumnsInfoCache[$Class] = @{
                 primary_keys = @($columns | Where-Object { $_.is_primary_key } | ForEach-Object { $_.name })
@@ -690,7 +742,7 @@ function Idm-Dispatcher {
             foreach ($key in $keys_with_null_value) { $function_params[$key] = [System.DBNull]::Value }
             
             $sql_command = New-SnowFlakeCommand $class_query
-            $sql_command.CommandTimeout = $SystemParams.timeout
+            $sql_command.CommandTimeout = $SystemParams.query_timeout
             Invoke-SnowFlakeCommand $sql_command
             Dispose-SnowFlakeCommand $sql_command
 
@@ -715,6 +767,7 @@ function Fill-SqlInfoCache {
     )
 
     # Refresh cache
+	Log verbose "Executing Query: $($Query)"
     $sql_command = New-SnowFlakeCommand $Query
     $sql_command.CommandTimeout = $Timeout
     $result = (Invoke-SnowFlakeCommand $sql_command) | Get-Member -MemberType Properties | Select-Object Name
@@ -723,7 +776,6 @@ function Fill-SqlInfoCache {
 
     $objects = New-Object System.Collections.ArrayList
     $object = @{}
-
     # Process in one pass
     foreach ($row in $result) {
             $object = @{
@@ -810,7 +862,7 @@ function Invoke-SnowFlakeCommand {
         Invoke-SnowFlakeCommand-ExecuteReader $SqlCommand
     }
     catch {
-        Log error "Query Failed: $_"
+        Log error "Query Failure: $_"
         throw $_
     }
 
@@ -843,7 +895,7 @@ function Open-SnowFlakeConnection {
     try {
         $connection = (new-object System.Data.Odbc.OdbcConnection);
         $connection.connectionstring = $connection_string
-		$connection.ConnectionTimeout = 3600
+		$connection.ConnectionTimeout = $connection_params.connection_timeout
         $connection.open();
 
         $Global:SnowFlakeConnection       = $connection
@@ -852,7 +904,7 @@ function Open-SnowFlakeConnection {
         $Global:ColumnsInfoCache = @{}
     }
     catch {
-        Log error "Connection Failed: $_"
+        Log error "Connection Failure: $($_)"
         throw $_
     }
 
