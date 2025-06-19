@@ -721,25 +721,6 @@ function Idm-Dispatcher {
                     break
                 }
             }
-
-		    $column_query = $class_query + " FETCH FIRST 5 ROWS ONLY"
-        
-            $columns = Fill-SqlInfoCache -Query $column_query -Timeout $SystemParams.query_timeout
-        
-            $Global:ColumnsInfoCache[$Class] = @{
-                primary_keys = @($columns | Where-Object { $_.is_primary_key } | ForEach-Object { $_.name })
-                identity_col = @($columns | Where-Object { $_.is_identity    } | ForEach-Object { $_.name })[0]
-            }
-
-            $primary_keys = $Global:ColumnsInfoCache[$Class].primary_keys
-            $identity_col = $Global:ColumnsInfoCache[$Class].identity_col
-
-            $function_params = ConvertFrom-Json2 $FunctionParams
-
-            # Replace $null by [System.DBNull]::Value
-            $keys_with_null_value = @()
-            foreach ($key in $function_params.Keys) { if ($function_params[$key] -eq $null) { $keys_with_null_value += $key } }
-            foreach ($key in $keys_with_null_value) { $function_params[$key] = [System.DBNull]::Value }
             
             $sql_command = New-SnowFlakeCommand $class_query
             $sql_command.CommandTimeout = $SystemParams.query_timeout
@@ -758,52 +739,10 @@ function Idm-Dispatcher {
 # Helper functions
 #
 
-function Fill-SqlInfoCache {
-    param (
-        [switch] $Force,
-        [string] $Query,
-        [string] $Class,
-        [string] $Timeout
-    )
-
-    # Refresh cache
-	Log verbose "Executing Query: $($Query)"
-    $sql_command = New-SnowFlakeCommand $Query
-    $sql_command.CommandTimeout = $Timeout
-    $result = (Invoke-SnowFlakeCommand $sql_command) | Get-Member -MemberType Properties | Select-Object Name
-    
-    Dispose-SnowFlakeCommand $sql_command
-
-    $objects = New-Object System.Collections.ArrayList
-    $object = @{}
-    # Process in one pass
-    foreach ($row in $result) {
-            $object = @{
-                full_name = $Class
-                type      = 'Query'
-                columns   = New-Object System.Collections.ArrayList
-            }
-
-        $object.columns.Add(@{
-            name           = $row.Name
-            is_primary_key = $false
-            is_identity    = $false
-            is_computed    = $false
-            is_nullable    = $true
-        }) | Out-Null
-    }
-
-    if ($object.full_name -ne $null) {
-        $objects.Add($object) | Out-Null
-    }
-    @($objects)
-}
-
 function New-SnowFlakeCommand {
     param (
         [string] $CommandText
     )
-
     $sql_command = New-Object System.Data.Odbc.OdbcCommand($CommandText, $Global:SnowFlakeConnection)
     return $sql_command
 }
@@ -826,7 +765,8 @@ function Invoke-SnowFlakeCommand {
         param (
             [System.Data.Odbc.OdbcCommand] $SqlCommand
         )
-        $data_reader = $SqlCommand.ExecuteReader()
+        Log verbose "Executing Query: $($SqlCommand.CommandText)"
+		$data_reader = $SqlCommand.ExecuteReader()
         $column_names = @($data_reader.GetSchemaTable().ColumnName)
 
         if ($column_names) {
@@ -837,7 +777,6 @@ function Invoke-SnowFlakeCommand {
                 $hash_table[$column_name] = ""
             }
 
-#           $obj = [PSCustomObject]$hash_table
             $obj = New-Object -TypeName PSObject -Property $hash_table
 
             # Read data
@@ -900,8 +839,6 @@ function Open-SnowFlakeConnection {
 
         $Global:SnowFlakeConnection       = $connection
         $Global:SnowFlakeConnectionString = $connection_string
-
-        $Global:ColumnsInfoCache = @{}
     }
     catch {
         Log error "Connection Failure: $($_)"
