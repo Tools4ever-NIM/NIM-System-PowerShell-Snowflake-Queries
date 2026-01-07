@@ -65,6 +65,27 @@ function Idm-SystemInfo {
                 description = 'Name of database'
                 value = ''
             }
+			@{
+                name = 'schema'
+                type = 'textbox'
+                label = 'Schema'
+                description = 'Name of schema'
+                value = ''
+            }
+			@{
+                name = 'warehouse'
+                type = 'textbox'
+                label = 'Warehouse'
+                description = 'Name of warehouse'
+                value = ''
+            }
+			@{
+                name = 'role'
+                type = 'textbox'
+                label = 'Role'
+                description = 'Name of role'
+                value = ''
+            }
             @{
                 name = 'user'
                 type = 'textbox'
@@ -815,7 +836,7 @@ function Open-SnowFlakeConnection {
     )
 
     $connection_params = ConvertFrom-Json2 $ConnectionParams
-    $connection_string = ("Driver={{SnowflakeDSIIDriver}};Server={0};Database={1};UID={2};PWD={3}" -f $connection_params.host_name, $connection_params.database, $connection_params.user, $connection_params.password)
+    $connection_string = ("Driver={{SnowflakeDSIIDriver}};Server={0};Database={1};UID={2};PWD={3};Schema={4};Warehouse={5};Role={6}" -f $connection_params.host_name, $connection_params.database, $connection_params.user, $connection_params.password, $connection_params.schema, $connection_params.warehouse, $connection_params.role)
     
     Log verbose $connection_string
     
